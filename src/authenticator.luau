@@ -35,6 +35,11 @@ function Authenticator:GetToken(): string
 	end
 end
 
+function Authenticator:ForceInvalidate()
+	self._token = nil
+	self._lastIssued = -math.huge
+end
+
 function Authenticator.new(userId: number): Authenticator
 	local self = setmetatable({
 		_userId = userId >= 0 and userId or 0;
