@@ -1,0 +1,7 @@
+{
+	"name": "SbaBackend",
+	"emitLegacyScripts": false,
+	"tree": {
+		"$path": "src"
+	}
+}

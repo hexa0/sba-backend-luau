@@ -1,0 +1,455 @@
+<roblox version="4">
+  <Item class="ModuleScript" referent="0">
+    <Properties>
+      <string name="Name">SbaBackend</string>
+      <string name="Source">--!strict
+
+local Authenticator = require("@self/authenticator")
+
+local systemAuth = Authenticator.new(0)</string>
+    </Properties>
+    <Item class="ModuleScript" referent="1">
+      <Properties>
+        <string name="Name">authenticator</string>
+        <string name="Source"><![CDATA[--!strict
+
+local HttpService = game:GetService("HttpService")
+
+local AuthenticatorType = require("./authenticatorType")
+type Authenticator = AuthenticatorType.Authenticator
+
+local Config = require("./config")
+local Http = require("./http")
+
+local Authenticator: Authenticator = {} :: any
+Authenticator.__index = Authenticator
+
+local AUTH_SECRET = HttpService:GetSecret(Config.BACKEND_AUTH_SECRET_KEY)
+-- server side tokens will expire after 1h, here we assume it expires 1 minute before
+local EXPIRY_TIME = 60 * 59
+
+function Authenticator:IsExpired()
+	return tick() - self._lastIssued > EXPIRY_TIME
+end
+
+function Authenticator:GetToken(): string
+	if self._token and not self:IsExpired() then
+		return self._token
+	else
+		local response = Http.AuthHandshake(
+			AUTH_SECRET,
+			self._userId
+		)
+
+		self._token = response.token
+		self._lastIssued = tick()
+		
+		return response.token
+	end
+end
+
+function Authenticator.new(userId: number): Authenticator
+	local self = setmetatable({
+		_userId = userId >= 0 and userId or 0;
+		_lastIssued = -math.huge;
+		_token = nil;
+	}, Authenticator)
+
+	return self :: any
+end
+
+return Authenticator
+]]></string>
+      </Properties>
+    </Item>
+    <Item class="ModuleScript" referent="2">
+      <Properties>
+        <string name="Name">authenticatorType</string>
+        <string name="Source">--!strict
+
+export type Authenticator = {
+	__index: Authenticator;
+	new: (userId: number) -&gt; Authenticator;
+
+	GetToken: (self: Authenticator) -&gt; string;
+	IsExpired: (self: Authenticator) -&gt; boolean;
+	
+	_userId: number;
+	_token: string?;
+	_lastIssued: number;
+}
+
+return 0</string>
+      </Properties>
+    </Item>
+    <Item class="ModuleScript" referent="3">
+      <Properties>
+        <string name="Name">config</string>
+        <string name="Source">--!strict
+
+return table.freeze{
+	BACKEND_URL = "https://sba.hexa.pet",
+	BACKEND_AUTH_SECRET_KEY = "DB_AUTH_SECRET_KEY"
+}</string>
+      </Properties>
+    </Item>
+    <Item class="ModuleScript" referent="4">
+      <Properties>
+        <string name="Name">http</string>
+        <string name="Source">--!strict
+
+local HttpService = game:GetService("HttpService")
+
+local Http = {}
+
+local AuthenticatorType = require("./authenticatorType")
+type Authenticator = AuthenticatorType.Authenticator
+
+local Config = require("./config")
+local Schemas = require("./schemas")
+local Retry = require("./retry")
+
+type HttpMethod = "GET" | "POST"
+type HttpQuery = {[string]: string}
+type HttpHeaders = {[string]: string | Secret}
+type HttpContentType = "application/json" | "application/json; charset=utf-8" | "application/octet-stream"
+
+type BaseHttpRequestOptions = {
+	path: string;
+}
+
+type HttpRequestOptions = BaseHttpRequestOptions &amp; {
+	method: HttpMethod;
+	contentType: HttpContentType;
+	body: any;
+	query: HttpQuery?;
+	headers: HttpHeaders?;
+	token: Authenticator?;
+}
+
+type JsonHttpRequestOptions = BaseHttpRequestOptions &amp; {
+	method: HttpMethod;
+	query: HttpQuery?;
+	headers: HttpHeaders?;
+	token: Authenticator?;
+	body: any;
+}
+
+type BasicHttpResponse = {
+	succeeded: boolean;
+	code: number;
+	message: string;
+	headers: HttpHeaders;
+	body: string;
+}
+
+type Response = {
+	new: (BasicHttpResponse) -&gt; Response;
+	__index: Response;
+
+	ExpectSuccess: (self: Response, onErrorMessage: string?) -&gt; Response;
+	ExpectContentType: (self: Response, contentType: HttpContentType, onErrorMessage: string?) -&gt; Response;
+
+	AsJson: (self: Response) -&gt; any;
+	AsBuffer: (self: Response) -&gt; buffer;
+	AsString: (self: Response) -&gt; string;
+	AsNumber: (self: Response) -&gt; number;
+
+	read basicResponse: BasicHttpResponse;
+}
+
+local Response: Response = {} :: any
+Response.__index = Response
+
+function Response.new(basicResponse: BasicHttpResponse): Response
+	return setmetatable({
+		basicResponse = basicResponse;
+	}, Response) :: Response
+end
+
+function Response:ExpectSuccess(onErrorMessage: string?)
+	if not self.basicResponse.succeeded then
+		error(`{onErrorMessage}{if onErrorMessage then " - " else ""}{self.basicResponse.code} {self.basicResponse.message}: {self.basicResponse.body}`)
+	else
+		return self
+	end
+end
+
+function Response:ExpectContentType(contentType: HttpContentType, onErrorMessage: string?)
+	local actualContentType = (Http.GetHeader(self.basicResponse.headers, "Content-Type") or "none"):split(";")
+	local expectedContentType = contentType:split(";")
+
+	if actualContentType ~= expectedContentType then
+		error(
+			`{onErrorMessage}{if onErrorMessage then " - " else ""}unexpected Content-Type, expected {expectedContentType} got {actualContentType} {
+				if not self.basicResponse.succeeded then 
+					`with error {self.basicResponse.code} {self.basicResponse.message}: {self.basicResponse.body}` else 
+					`with code {self.basicResponse.code} {self.basicResponse.message}`
+			}`
+		)
+	else
+		return self
+	end
+end
+
+function Response:AsJson()
+	return HttpService:JSONDecode(self.basicResponse.body)
+end
+
+function Response:AsBuffer()
+	return buffer.fromstring(self.basicResponse.body)
+end
+
+function Response:AsString()
+	return self.basicResponse.body
+end
+
+local NaN = 0/0
+
+function Response:AsNumber()
+	return tonumber(self.basicResponse.body) or NaN
+end
+
+-- TODO: URI Encoding
+function Http.BuildQuery(query: HttpQuery): string
+	local queryString = ""
+	local firstKey = true
+
+	for key, value in query do
+		queryString ..= `{if firstKey then "?" else "&amp;"}{HttpService:UrlEncode(key)}={HttpService:UrlEncode(value)}`
+		firstKey = false
+	end
+
+	return queryString
+end
+
+function Http.GetHeader(headers: HttpHeaders, header: string): string?
+	local lower = header:lower()
+
+	for key, value in headers do
+		if key == lower and typeof(value) == "string" then
+			return value
+		end
+	end
+
+	return nil
+end
+
+function Http.MakeRequest(options: HttpRequestOptions)
+	local headers: HttpHeaders = options.headers or {} 
+	
+	if options.contentType then
+		headers["Content-Type"] = options.contentType
+	end
+
+	if options.token then
+		local status = Retry(function() return options.token:GetToken() end)
+
+		if not status.succeeded then
+			return Response.new({
+				succeeded = false;
+				headers = {};
+				code = 0;
+				message = "Retry Fail";
+				body = status.error
+			})
+		end
+
+		headers["Authorization"] = `Bearer {status.returned}`
+	end
+
+	local request = HttpService:RequestAsync{
+		Url = `{Config.BACKEND_URL}{options.path}{Http.BuildQuery(options.query or {})}`,
+		Method = options.method,
+		Headers = headers :: any,
+		Body = options.body,
+		Compress = if typeof(options.body) == "string" and #options.body &gt; 512 then Enum.HttpCompression.Gzip else Enum.HttpCompression.None
+	}
+
+	return Response.new({
+		succeeded = request.Success;
+		headers = request.Headers :: any;
+		code = request.StatusCode;
+		message = request.StatusMessage;
+		body = request.Body or ""
+	})
+end
+
+function Http.MakeJsonRequest(jsonOptions: JsonHttpRequestOptions)
+	local options: HttpRequestOptions = jsonOptions :: any
+	options.contentType = "application/json; charset=utf-8"
+    options.body = HttpService:JSONEncode(jsonOptions.body)
+
+	return Http.MakeRequest(options)
+end
+
+type HttpServiceResponse = typeof(HttpService:RequestAsync({Url="",Compress=Enum.HttpCompression.None;}))
+
+-- this is implemented here so that authenticator doesn't do cyclic requires
+-- all other requests should be implemented in requests.luau
+function Http.AuthHandshake(key: Secret, userId: number): Schemas.HandshakeResponse
+	return Http.MakeJsonRequest{method = "POST"; path = "/auth/handshake"; body = {userId = userId}; headers = {["X-Roblox-Secret"] = key}}
+		:ExpectSuccess("Authentication failure")
+		:ExpectContentType("application/json", "Authentication was malformed")
+		:AsJson()
+end
+
+return Http</string>
+      </Properties>
+    </Item>
+    <Item class="ModuleScript" referent="5">
+      <Properties>
+        <string name="Name">requests</string>
+        <string name="Source"><![CDATA[--!strict
+
+local Http = require("./http")
+local Schemas = require("./schemas")
+local AuthenticatorType = require("./authenticatorType")
+type Authenticator = AuthenticatorType.Authenticator
+
+local Requests = {}
+
+function Requests.SetUnlockable(token: Authenticator, payload: Schemas.UnlockableSetRequest): { success: boolean }
+	return Http.MakeJsonRequest{method = "POST"; path = "/unlockables/set"; body = payload; token = token;}
+		:ExpectSuccess("Failed to set unlockable")
+		:AsJson()
+end
+
+-- GET /unlockables/get/:userId
+function Requests.GetUnlockables(userId: number): { string }
+	return Http.MakeRequest{method = "GET"; path = `/unlockables/get/{userId}`; contentType = "application/json"; body = "";}
+		:ExpectSuccess("Failed to fetch unlockables")
+		:ExpectContentType("application/json", "Unlockables was malformed")
+		:AsJson()
+end
+
+-- POST /base/save?name=...
+function Requests.SaveBase(token: Authenticator, name: string, content: buffer): { success: boolean }
+	return Http.MakeRequest{method = "POST"; path = "/base/save"; query = {name = name}; contentType = "application/octet-stream"; body = buffer.tostring(content); token = token;}
+		:ExpectSuccess("Failed to save base")
+		:ExpectContentType("application/json", "Base save response was malformed")
+		:AsJson()
+end
+
+-- GET /base/list/
+function Requests.ListBases(token: Authenticator): Schemas.BaseListResponse
+	return Http.MakeRequest{method = "GET"; path = "/base/list/"; contentType = "application/json"; body = ""; token = token;}
+		:ExpectSuccess("Failed to list bases")
+		:ExpectContentType("application/json", "Base list response was malformed")
+		:AsJson()
+end
+
+-- POST /log/send
+function Requests.SendLog(token: Authenticator, payload: Schemas.LogSendRequest): { success: boolean }
+	return Http.MakeJsonRequest{method = "POST"; path = "/log/send"; body = payload; token = token;}
+		:ExpectSuccess("Failed to send log")
+		:ExpectContentType("application/json", "log response was malformed")
+		:AsJson()
+end
+
+return Requests
+]]></string>
+      </Properties>
+    </Item>
+    <Item class="ModuleScript" referent="6">
+      <Properties>
+        <string name="Name">retry</string>
+        <string name="Source">--!strict
+
+local task = task
+
+type RetryOptions = {
+	maxAttempts: number?;
+	initialDelay: number?;
+	backoffMultiplier: number?;
+}
+
+type RetryStatus&lt;T&gt; = {
+	succeeded: boolean;
+	returned: T;
+	error: string;
+}
+
+local function Retry&lt;T&gt;(callback: () -&gt; T, options: RetryOptions?): RetryStatus&lt;T&gt;
+	local maxAttempts = options and options.maxAttempts or 3
+	local delayTime = options and options.initialDelay or 1
+	local multiplier = options and options.backoffMultiplier or 2
+
+	local attempts = 0
+
+	while true do
+		attempts += 1
+
+		local result = { pcall(callback) }
+		local success = result[1]
+
+		if success then
+			return {
+				succeeded = true;
+				returned = result[2] :: any;
+				error = "";
+			}
+		end
+
+		local errorMessage: string = result[2] :: any
+
+		if attempts &gt;= maxAttempts then
+			return {
+				succeeded = false;
+				returned = result[2] :: any;
+				error = `Max retry attempts reached ({maxAttempts}). Last error: {errorMessage}`;
+			}
+		end
+
+		warn(`Attempt {attempts} failed: {errorMessage}. Retrying in {delayTime}s...`)
+
+		task.wait(delayTime)
+		delayTime *= multiplier
+	end
+end
+
+return Retry</string>
+      </Properties>
+    </Item>
+    <Item class="ModuleScript" referent="7">
+      <Properties>
+        <string name="Name">schemas</string>
+        <string name="Source">local Schemas = {}
+
+-- /auth/handshake response
+export type HandshakeResponse = {
+    token: string;
+}
+
+-- /unlockables/set request
+export type UnlockableSetRequest = {
+    userId: number;
+    name: string;
+}
+
+-- /log/send request
+export type LogSendRequest = {
+    type: string;
+    contents: string;
+    adminName: string?;
+}
+
+-- /base/save request
+export type BaseSaveQueryParams = {
+    name: string;
+}
+
+-- /base/list/:userId response
+export type BaseListItem = {
+    file: string;
+    size: number;
+}
+export type BaseListResponse = {
+	[string]: BaseListItem;
+}
+
+return Schemas</string>
+      </Properties>
+    </Item>
+  </Item>
+</roblox>
