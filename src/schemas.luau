@@ -24,7 +24,7 @@ export type UnlockableSetRequest = {
     name: string;
 }
 
--- /unlockables/get/:userId response
+-- /unlockables/get response
 export type UnlockableGetResponse = {string}
 
 -- /log/send request
@@ -51,7 +51,7 @@ export type BaseDeleteQueryParams = {
     name: string;
 }
 
--- /base/list/:userId response
+-- /base/list response
 export type BaseListItem = {
     name: string;
 	updatedAt: string; -- ISO Date
