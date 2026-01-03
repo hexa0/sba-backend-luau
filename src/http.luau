@@ -11,7 +11,7 @@ local Config = require("./config")
 local Schemas = require("./schemas")
 local Retry = require("./retry")
 
-type HttpMethod = "GET" | "POST"
+type HttpMethod = "GET" | "POST" | "PATCH" | "DELETE" | "HEAD"
 type HttpQuery = {[string]: string}
 type HttpHeaders = {[string]: string | Secret}
 type HttpContentType = "application/json" | "application/json; charset=utf-8" | "application/octet-stream"
@@ -22,8 +22,8 @@ type BaseHttpRequestOptions = {
 
 type HttpRequestOptions = BaseHttpRequestOptions & {
 	method: HttpMethod;
-	contentType: HttpContentType;
-	body: any;
+	contentType: HttpContentType?;
+	body: any?;
 	query: HttpQuery?;
 	headers: HttpHeaders?;
 	token: Authenticator?;
@@ -71,7 +71,15 @@ end
 
 function Response:ExpectSuccess(onErrorMessage: string?)
 	if not self.basicResponse.succeeded then
-		error(`{onErrorMessage}{if onErrorMessage then " - " else ""}{self.basicResponse.code} {self.basicResponse.message}: {self.basicResponse.body}`)
+		local contentType = (Http.GetHeader(self.basicResponse.headers, "Content-Type") or "none"):split(";")[1]
+
+		if contentType == "application/json" then
+			-- we've likely gotten a standard json format error
+			error(`{onErrorMessage}{if onErrorMessage then " - " else ""}{self.basicResponse.code} {self.basicResponse.message}: {HttpService:JSONDecode(self.basicResponse.body).error or self.basicResponse.body}`)
+		else
+			-- we've gotten a non JSON error, possibly from cloudflare?
+			error(`{onErrorMessage}{if onErrorMessage then " - " else ""}{self.basicResponse.code} {self.basicResponse.message}: {self.basicResponse.body}`)
+		end
 	else
 		return self
 	end

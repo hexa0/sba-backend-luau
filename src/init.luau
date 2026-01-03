@@ -1,5 +1,10 @@
 --!strict
 
+local Requests = require("@self/requests")
 local Authenticator = require("@self/authenticator")
 
-local systemAuth = Authenticator.new(0)
+return {
+	Requests = Requests;
+	Authenticator = Authenticator;
+	systemAuth = Authenticator.new(0);
+}
