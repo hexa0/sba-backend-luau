@@ -19,9 +19,9 @@ function Requests.ObtainUnlockable(token: Authenticator, payload: Schemas.Unlock
 		:AsJson()
 end
 
--- GET /unlockables/get/:userId
-function Requests.GetUnlockables(userId: number): Schemas.UnlockableGetResponse
-	return Http.MakeRequest{method = "GET"; path = `/unlockables/get/{userId}`; contentType = "application/json";}
+-- GET /unlockables/get/
+function Requests.GetUnlockables(token: Authenticator): Schemas.UnlockableGetResponse
+	return Http.MakeRequest{method = "GET"; path = `/unlockables/get/`; contentType = "application/json"; token = token;}
 		:ExpectSuccess("Failed to fetch unlockables")
 		:ExpectContentType("application/json", "Unlockables was malformed")
 		:AsJson()
