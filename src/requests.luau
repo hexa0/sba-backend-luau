@@ -23,7 +23,7 @@ end
 
 -- GET /unlockables/get
 function Requests.GetUnlockables(token: Authenticator): Schemas.UnlockableGetResponse
-	return Http.MakeRequest{method = "GET"; path = "/unlockables/get/"; contentType = "application/json"; token = token;}
+	return Http.MakeRequest{method = "GET"; path = "/unlockables/get"; contentType = "application/json"; token = token;}
 		:ExpectSuccess("Failed to fetch unlockables")
 		:ExpectContentType("application/json", "Unlockables was malformed")
 		:AsJson()
