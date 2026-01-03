@@ -168,13 +168,37 @@ function Http.MakeRequest(options: HttpRequestOptions)
 		headers["Authorization"] = `Bearer {status.returned}`
 	end
 
-	local request = HttpService:RequestAsync{
+	local robloxRequest = {
 		Url = `{Config.BACKEND_URL}{options.path}{Http.BuildQuery(options.query or {})}`,
 		Method = options.method,
 		Headers = headers :: any,
 		Body = options.body,
 		Compress = if typeof(options.body) == "string" and #options.body > 512 then Enum.HttpCompression.Gzip else Enum.HttpCompression.None
 	}
+
+	local request = HttpService:RequestAsync(robloxRequest :: any)
+
+	-- this may happen if the server restarts, in this case we want to safely retry a request without an error
+	if options.token and not request.Success and request.StatusCode == 401 then
+		warn(`JWT token may have unexpectedly expired, claiming a new token`)
+		options.token:ForceInvalidate()
+
+		local status = Retry(function() return options.token:GetToken() end)
+
+		if not status.succeeded then
+			return Response.new({
+				succeeded = false;
+				headers = {};
+				code = 0;
+				message = "Retry Fail";
+				body = status.error
+			})
+		end
+
+		headers["Authorization"] = `Bearer {status.returned}`
+
+		request = HttpService:RequestAsync(robloxRequest :: any)
+	end
 
 	return Response.new({
 		succeeded = request.Success;

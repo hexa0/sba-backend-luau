@@ -6,6 +6,7 @@ export type Authenticator = {
 
 	GetToken: (self: Authenticator) -> string;
 	IsExpired: (self: Authenticator) -> boolean;
+	ForceInvalidate: (self: Authenticator) -> ();
 	
 	_userId: number;
 	_token: string?;
