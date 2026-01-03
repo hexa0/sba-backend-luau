@@ -7,19 +7,21 @@ type Authenticator = AuthenticatorType.Authenticator
 
 local Requests = {}
 
+-- GET /status/test
 function Requests.CheckAlive(): Schemas.CheckAliveResponse
 	return Http.MakeRequest{method = "GET"; path = "/status/test";}
 		:ExpectSuccess("Failed check if server is alive")
 		:AsJson()
 end
 
+-- POST /unlockables/set
 function Requests.ObtainUnlockable(token: Authenticator, payload: Schemas.UnlockableSetRequest): Schemas.SuccessResponse
 	return Http.MakeJsonRequest{method = "POST"; path = "/unlockables/set"; body = payload; token = token;}
 		:ExpectSuccess("Failed to set unlockable")
 		:AsJson()
 end
 
--- GET /unlockables/get/
+-- GET /unlockables/get
 function Requests.GetUnlockables(token: Authenticator): Schemas.UnlockableGetResponse
 	return Http.MakeRequest{method = "GET"; path = "/unlockables/get/"; contentType = "application/json"; token = token;}
 		:ExpectSuccess("Failed to fetch unlockables")
