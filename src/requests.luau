@@ -50,7 +50,7 @@ end
 
 -- PATCH /base/rename?name=...
 function Requests.RenameBase(token: Authenticator, payload: Schemas.BaseRenameQueryParams): Schemas.SuccessResponse
-	return Http.MakeRequest{method = "PATCH"; path = "/base/rename"; contentType = "application/octet-stream", query = {oldName = payload.oldName; newName = payload.newName;}; token = token;}
+	return Http.MakeRequest{method = "PATCH"; path = "/base/rename", query = {oldName = payload.oldName; newName = payload.newName;}; token = token;}
 		:ExpectSuccess("Failed to rename base")
 		:ExpectContentType("application/json", "Base rename response was malformed")
 		:AsJson()
