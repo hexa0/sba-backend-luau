@@ -20,7 +20,6 @@ export type HandshakeResponse = SuccessResponse & {
 
 -- /unlockables/set request
 export type UnlockableSetRequest = {
-    userId: number;
     name: string;
 }
 
@@ -44,6 +43,11 @@ export type BaseSavePayload = {
 export type BaseRenameQueryParams = {
     oldName: string;
     newName: string;
+}
+
+-- /base/load request
+export type BaseLoadPayload = {
+    name: string;
 }
 
 -- /base/rename request

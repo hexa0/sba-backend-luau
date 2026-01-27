@@ -14,7 +14,7 @@ local Retry = require("./retry")
 type HttpMethod = "GET" | "POST" | "PATCH" | "DELETE" | "HEAD"
 type HttpQuery = {[string]: string}
 type HttpHeaders = {[string]: string | Secret}
-type HttpContentType = "application/json" | "application/json; charset=utf-8" | "application/octet-stream"
+type HttpContentType = "application/json" | "application/json; charset=utf-8" | "application/octet-stream" | "text/plain" | "text/plain; charset=utf-8"
 
 type BaseHttpRequestOptions = {
 	path: string;
@@ -151,6 +151,9 @@ function Http.MakeRequest(options: HttpRequestOptions)
 	if options.contentType then
 		headers["Content-Type"] = options.contentType
 	end
+
+	headers["Cache-Control"] = "no-cache"
+	headers["Accept"] = "*/*"
 
 	if options.token then
 		local status = Retry(function() return options.token:GetToken() end)
